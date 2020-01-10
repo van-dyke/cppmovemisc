@@ -53,6 +53,7 @@ Omits copy and move (since C++11) constructors, resulting in zero-copy pass-by-v
 ```cpp
 #include <iostream>
 #include <vector>
+#include <algorithm>
 
 using namespace std;
 
@@ -60,7 +61,7 @@ using namespace std;
 struct Noisy {
     Noisy() { std::cout << "constructed\n"; }
     Noisy(const Noisy&) { std::cout << "copy-constructed\n"; }
-    Noisy(Noisy&&) { std::cout << "move-constructed\n"; }
+    Noisy(Noisy&&) noexcept { std::cout << "move-constructed\n"; }
     ~Noisy() { std::cout << "destructed\n"; }
 };
 
@@ -77,10 +78,32 @@ void g(std::vector<Noisy> arg) {
     std::cout << "arg.size() = " << arg.size() << '\n';
 }
 
+std::vector<Noisy> foo1(std::vector<Noisy> names)
+{
+	//names.push_back(Noisy{});
+    return names;
+}
+
+std::vector<Noisy> foo2(std::vector<Noisy> const& names) // names passed by reference
+{
+    std::vector<Noisy> r(names);        // and explicitly copied
+    return r;
+}
+
+std::vector<Noisy> foo3(std::vector<Noisy> const& names) // names passed by reference
+{
+    return names;
+}
 
 
-int main() {
-	{
+std::vector<Noisy> boo()
+{
+    return std::vector<Noisy>(3);
+}
+
+
+int main()
+{
 	    std::vector<Noisy> v = f(); // copy elision in initialization of v
 	                                // from the temporary returned by f() (until C++17)
 	                                // from the prvalue f() (since C++17)
@@ -88,7 +111,15 @@ int main() {
 	    g(f());                     // copy elision in initialization of the parameter of g()
 	                                // from the temporary returned by f() (until C++17)
 	                                // from the prvalue f() (since C++17)
-	}
+
+	    std::cout << "Calling foo1..." << '\n';
+	    // get_names() is an rvalue expression; we can omit the copy!
+	    std::vector<Noisy> tmp1 = foo1( boo() );
+	    std::cout << "Calling foo2..." << '\n';
+	    std::vector<Noisy> tmp2 = foo2( boo() );
+	    std::cout << "Calling foo3..." << '\n';
+	    std::vector<Noisy> tmp3 = foo3( boo() );
+	    std::cout << "END" << '\n';
 }
 ```
 ***Posibble output:***
@@ -112,6 +143,73 @@ constructed
 constructed
 
 arg.size() = 3
+
+destructed
+
+destructed
+
+destructed
+
+Calling foo1...
+
+constructed
+
+constructed
+
+constructed
+
+Calling foo2...
+
+constructed
+
+constructed
+
+constructed
+
+copy-constructed
+
+copy-constructed
+
+copy-constructed
+
+destructed
+
+destructed
+
+destructed
+Calling foo3...
+
+constructed
+
+constructed
+
+constructed
+
+copy-constructed
+
+copy-constructed
+
+copy-constructed
+
+destructed
+
+destructed
+
+destructed
+
+END
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
 
 destructed
 
