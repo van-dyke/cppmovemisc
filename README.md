@@ -119,6 +119,17 @@ int main()
 	    std::vector<Noisy> tmp2 = foo2( boo() );
 	    std::cout << "Calling foo3..." << '\n';
 	    std::vector<Noisy> tmp3 = foo3( boo() );
+
+	    std::cout << " *** Now lvalue! *** " << '\n';
+	    std::vector<Noisy> vec{3};
+
+	    std::cout << "Calling foo1..." << '\n';
+	    std::vector<Noisy> tmp4 = foo1( vec );
+	    std::cout << "Calling foo2..." << '\n';
+	    std::vector<Noisy> tmp5 = foo2( vec );
+	    std::cout << "Calling foo3..." << '\n';
+	    std::vector<Noisy> tmp6 = foo3( vec );
+
 	    std::cout << "END" << '\n';
 }
 ```
@@ -177,6 +188,7 @@ destructed
 destructed
 
 destructed
+
 Calling foo3...
 
 constructed
@@ -196,6 +208,38 @@ destructed
 destructed
 
 destructed
+
+*** Now lvalue! *** 
+
+constructed
+
+constructed
+
+constructed
+
+Calling foo1...
+
+copy-constructed
+
+copy-constructed
+
+copy-constructed
+
+Calling foo2...
+
+copy-constructed
+
+copy-constructed
+
+copy-constructed
+
+Calling foo3...
+
+copy-constructed
+
+copy-constructed
+
+copy-constructed
 
 END
 
@@ -222,3 +266,28 @@ destructed
 destructed
 
 destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
+destructed
+
