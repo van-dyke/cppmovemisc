@@ -133,117 +133,7 @@ int main()
 	    std::cout << "END" << '\n';
 }
 ```
-***Posibble output:***
 
-Into f...
-
-constructed
-
-constructed
-
-constructed
-
-Calling g...
-
-Into f...
-
-constructed
-
-constructed
-
-constructed
-
-arg.size() = 3
-
-destructed
-
-destructed
-
-destructed
-
-Calling foo1...
-
-constructed
-
-constructed
-
-constructed
-
-Calling foo2...
-
-constructed
-
-constructed
-
-constructed
-
-copy-constructed
-
-copy-constructed
-
-copy-constructed
-
-destructed
-
-destructed
-
-destructed
-
-Calling foo3...
-
-constructed
-
-constructed
-
-constructed
-
-copy-constructed
-
-copy-constructed
-
-copy-constructed
-
-destructed
-
-destructed
-
-destructed
-
-*** Now lvalue! *** 
-
-constructed
-
-constructed
-
-constructed
-
-Calling foo1...
-
-copy-constructed
-
-copy-constructed
-
-copy-constructed
-
-Calling foo2...
-
-copy-constructed
-
-copy-constructed
-
-copy-constructed
-
-Calling foo3...
-
-copy-constructed
-
-copy-constructed
-
-copy-constructed
-
-END
-
-destructed [...]
 
 # 3. copy-and-swap idiom
 [ https://stackoverflow.com/questions/3279543/what-is-the-copy-and-swap-idiom ]
@@ -521,3 +411,105 @@ Instead, if you pass the shared_ptr parameter by value and then std::move inside
 
 Bottom line: in this case you get just one ref count atomic increment, i.e. just one atomic operation.
 As you can see, this is much better than two atomic increments plus one atomic decrement (for a total of three atomic operations) for the copy case.
+
+
+# 5. What does auto&& tell us? What does auto&& do?
+
+[ https://stackoverflow.com/questions/13230480/what-does-auto-tell-us ]
+
+By using auto&& var = <initializer> you are saying: ***I will accept any initializer regardless of whether it is an lvalue or rvalue expression and I will preserve its constness*** This is typically used for forwarding (usually with T&&). The reason this works is because a "universal reference", auto&& or T&&, will bind to anything.
+
+You might say, well why not just use a const auto& because that will also bind to anything? The problem with using a const reference is that it's const! You won't be able to later bind it to any non-const references or invoke any member functions that are not marked const.
+
+As an example, imagine that you want to get a std::vector, take an iterator to its first element and modify the value pointed to by that iterator in some way:
+
+```cpp
+auto&& vec = some_expression_that_may_be_rvalue_or_lvalue;
+auto i = std::begin(vec);
+(*i)++;
+```
+
+This code will compile just fine regardless of the initializer expression. The alternatives to auto&& fail in the following ways:
+
+auto         => will copy the vector, but we wanted a reference
+auto&        => will only bind to modifiable lvalues
+const auto&  => will bind to anything but make it const, giving us const_iterator
+const auto&& => will bind only to rvalues
+
+If you then use std::forward on your auto&& reference to preserve the fact that it was originally either an lvalue or an rvalue, your code says: ***Now that I've got your object from either an lvalue or rvalue expression, I want to preserve whichever valueness it originally had so I can use it most efficiently - this might invalidate it*** As in:
+
+```cpp
+auto&& var = some_expression_that_may_be_rvalue_or_lvalue;
+// var was initialized with either an lvalue or rvalue, but var itself
+// is an lvalue because named rvalues are lvalues
+use_it_elsewhere(std::forward<decltype(var)>(var));
+```
+
+This allows use_it_elsewhere to rip its guts out for the sake of performance (avoiding copies) when the original initializer was a modifiable rvalue.
+
+What does this mean as to whether we can or when we can steal resources from var? Well since the auto&& will bind to anything, we cannot possibly try to rip out vars guts ourselves - it may very well be an lvalue or even const. We can however std::forward it to other functions that may totally ravage its insides. As soon as we do this, we should consider var to be in an invalid state.
+
+Now let's apply this to the case of auto&& var = foo();, as given in your question, where foo returns a T by value. In this case we know for sure that the type of var will be deduced as T&&. Since we know for certain that it's an rvalue, we don't need std::forward's permission to steal its resources. In this specific case, knowing that foo returns by value, the reader should just read it as: ***I'm taking an rvalue reference to the temporary returned from foo, so I can happily move from it***
+
+
+# 6. auto&& in Range-based for loop
+
+[ https://en.cppreference.com/w/cpp/language/range-for#Explanation ]
+[ https://blog.petrzemek.net/2016/08/17/auto-type-deduction-in-range-based-for-loops/ ]
+
+```cpp
+for (auto&& x : range)
+```
+
+Use auto&& when you want to modify elements in the range in generic code. To elaborate, auto&& is a forwarding reference, also known as a universal reference. It behaves as follows:
+
+When initialized with an lvalue, it creates an lvalue reference.
+When initialized with an rvalue, it creates an rvalue reference.
+A detailed explanation of forwarding references is outside of scope of the present post. For more details, see this article by Scott Meyers. Anyway, the use of auto&& allows us to write generic loops that can also modify elements of ranges yielding proxy objects, such as our friend (or foe?) std::vector<bool>:
+
+```cpp
+// Sets all elements in the given range to the given value.
+// Now working even with std::vector<bool>.
+template<typename Range, typename Value>
+void set_all_to(Range& range, const Value& value) {
+    for (auto&& x : range) { // Notice && instead of &.
+        x = value;
+    }
+}
+```
+
+Now, you may wonder: if auto&& works even in generic code, why should I ever use auto&? As Howard Hinnant puts it, liberate use of auto&& results in so-called confuscated code: code that unnecessarily confuses people. My advice is to use auto& in non-generic code and auto&& only in generic code.
+
+By the way, there was a proposal for C++1z to allow writing just for (x : range), which would be translated into for (auto&& x : range). Such range-based for loops were called terse. However, this proposal was removed from consideration and will not be part of C++.
+
+
+***const auto&&*** variant:
+
+```cpp
+for (const auto&& x : range)
+```
+
+This variant will bind only to rvalues, which you will not be able to modify or move because of the const. This makes it less than useless. Hence, there is no reason for choosing this variant over const auto&.
+
+***Example***
+
+The difference between auto& and auto&& is relevant when elt's initializer is an rvalue expression. The canonical example involves vector<bool>, whose iterator's operator* typically returns a proxy type by value:
+
+```cpp
+int main()
+{
+    std::vector<bool> v{ true, false, true, false };   
+    for (auto& elt: v) elt = true; // vs.
+    for (auto&& elt: v) elt = true; 
+}
+```
+
+The first loop fails to compile, because it attempts to bind a lvalue reference to an rvalue.
+
+***Temporary range expression***
+
+If range_expression returns a temporary, its lifetime is extended until the end of the loop, as indicated by binding to the forwarding reference __range, but beware that the lifetime of any temporary within range_expression is not extended.
+
+```cpp
+for (auto& x : foo().items()) { /* .. */ } // undefined behavior if foo() returns by value
+```
