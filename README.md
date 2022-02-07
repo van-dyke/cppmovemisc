@@ -513,3 +513,127 @@ If range_expression returns a temporary, its lifetime is extended until the end 
 ```cpp
 for (auto& x : foo().items()) { /* .. */ } // undefined behavior if foo() returns by value
 ```
+
+# 7. How does std::move() transfer values into RValues?
+
+[ Taken from: https://stackoverflow.com/questions/7510182/how-does-stdmove-transfer-values-into-rvalues ]	
+
+	
+We start with the move function (which I cleaned up a little bit):
+
+	
+```cpp
+template <typename T>
+typename remove_reference<T>::type&& move(T&& arg)
+{
+  return static_cast<typename remove_reference<T>::type&&>(arg);
+}
+```
+	
+Let's start with the easier part - that is, when the function is called with rvalue:
+
+```cpp	
+Object a = std::move(Object());	
+// Object() is temporary, which is prvalue
+```
+	
+and our move template gets instantiated as follows:
+
+```cpp	
+// move with [T = Object]:
+remove_reference<Object>::type&& move(Object&& arg)
+{
+  return static_cast<remove_reference<Object>::type&&>(arg);
+}
+```
+	
+Since remove_reference converts T& to T or T&& to T, and Object is not reference, our final function is:
+
+```cpp
+Object&& move(Object&& arg)
+{
+  return static_cast<Object&&>(arg);
+}
+```
+	
+Now, you might wonder: do we even need the cast? The answer is: yes, we do. The reason is simple; named rvalue reference is treated as lvalue (and implicit conversion from lvalue to rvalue reference is forbidden by standard).
+
+	
+Here's what happens when we call move with lvalue:
+
+```cpp	
+Object a; // a is lvalue
+Object b = std::move(a);
+```
+	
+and corresponding move instantiation:
+
+```cpp	
+// move with [T = Object&]
+remove_reference<Object&>::type&& move(Object& && arg)
+{
+  return static_cast<remove_reference<Object&>::type&&>(arg);
+}
+```
+	
+Again, remove_reference converts Object& to Object and we get:
+
+```cpp
+Object&& move(Object& && arg)
+{
+  return static_cast<Object&&>(arg);
+}
+```
+	
+Now we get to the tricky part: what does Object& && even mean and how can it bind to lvalue?
+
+To allow perfect forwarding, C++11 standard provides special rules for reference collapsing, which are as follows:
+
+```cpp
+Object &  &  = Object &
+Object &  && = Object &
+Object && &  = Object &
+Object && && = Object &&
+```
+	
+As you can see, under these rules Object& && actually means Object&, which is plain lvalue reference that allows binding lvalues.
+
+Final function is thus:
+
+```cpp
+Object&& move(Object& arg)
+{
+  return static_cast<Object&&>(arg);
+}
+```
+	
+which is not unlike the previous instantiation with rvalue - they both cast its argument to rvalue reference and then return it. The difference is that first instantiation can be used with rvalues only, while the second one works with lvalues.
+
+To explain why do we need remove_reference a bit more, let's try this function
+
+```cpp
+template <typename T>
+T&& wanna_be_move(T&& arg)
+{
+  return static_cast<T&&>(arg);
+}
+```
+	
+and instantiate it with lvalue.
+
+```cpp
+// wanna_be_move [with T = Object&]
+Object& && wanna_be_move(Object& && arg)
+{
+  return static_cast<Object& &&>(arg);
+}
+```
+	
+Applying the reference collapsing rules mentioned above, you can see we get function that is unusable as move (to put it simply, you call it with lvalue, you get lvalue back). If anything, this function is the identity function.
+
+```cpp
+Object& wanna_be_move(Object& arg)
+{
+  return static_cast<Object&>(arg);
+}
+```
